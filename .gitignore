@@ -1,0 +1,35 @@
+# Ambiente / segreti
+.env
+*.env
+
+# Dati persistenti del bot (creati a runtime)
+data/
+ticket_config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Ambienti virtuali
+venv/
+.venv/
+env/
+ENV/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log
+*.log
