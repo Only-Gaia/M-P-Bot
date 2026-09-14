@@ -2,12 +2,14 @@ import discord
 import asyncio
 import json
 import os
+import time
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import View, Select, Button, Modal, TextInput
 
 TICKET_CATEGORY_NAME = "🎫 Ticket"
 CONFIG_FILE = "ticket_config.json"
+CLAIM_COOLDOWN_SECONDS = 5
 
 
 # ---------------------- GESTIONE CONFIGURAZIONE (JSON) ----------------------
@@ -72,6 +74,41 @@ async def resolve_member(guild: discord.Guild, member_id):
         except (discord.NotFound, discord.HTTPException):
             member = None
     return member
+
+
+async def restrict_channel_to_claimer(guild: discord.Guild, channel: discord.TextChannel, gconf: dict, claimer: discord.Member):
+    """Al claim: nasconde il canale a tutti i ruoli staff, lascia visibile solo a chi ha claimato."""
+    staff_role_ids = gconf.get("staff_roles", [])
+    for rid in staff_role_ids:
+        role = guild.get_role(rid)
+        if role:
+            try:
+                await channel.set_permissions(role, view_channel=False, send_messages=False)
+            except discord.Forbidden:
+                pass
+    try:
+        await channel.set_permissions(claimer, view_channel=True, send_messages=True, read_message_history=True)
+    except discord.Forbidden:
+        pass
+
+
+async def restore_staff_access(guild: discord.Guild, channel: discord.TextChannel, gconf: dict, previous_claimer_id):
+    """All'unclaim: ridà accesso a tutti i ruoli staff e rimuove l'overwrite dedicato al vecchio claimer."""
+    staff_role_ids = gconf.get("staff_roles", [])
+    for rid in staff_role_ids:
+        role = guild.get_role(rid)
+        if role:
+            try:
+                await channel.set_permissions(role, view_channel=True, send_messages=True, read_message_history=True)
+            except discord.Forbidden:
+                pass
+    if previous_claimer_id:
+        member = await resolve_member(guild, previous_claimer_id)
+        if member:
+            try:
+                await channel.set_permissions(member, overwrite=None)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
 
 
 # ---------------------- SISTEMA RECENSIONI ----------------------
@@ -162,10 +199,26 @@ class TicketManageView(View):
 
         gconf = get_guild_config(interaction.guild.id)
         ticket = gconf["tickets"].setdefault(str(interaction.channel.id), {})
+
+        if ticket.get("claimed_by_id"):
+            return await interaction.response.send_message("❌ Questo ticket è già stato preso in carico.", ephemeral=True)
+
+        cooldown_until = ticket.get("claim_cooldown_until", 0)
+        remaining = cooldown_until - time.time()
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ Aspetta ancora {remaining:.1f}s prima di poter fare claim.", ephemeral=True
+            )
+
         ticket["claimed_by_id"] = interaction.user.id
         save_config(config)
 
-        await interaction.channel.send(f"✅ Ticket preso in carico da {interaction.user.mention}")
+        await restrict_channel_to_claimer(interaction.guild, interaction.channel, gconf, interaction.user)
+
+        await interaction.channel.send(
+            f"✅ Ticket preso in carico da {interaction.user.mention}.\n"
+            f"🔒 Da ora solo {interaction.user.mention} può vedere e scrivere in questo ticket."
+        )
         await interaction.response.defer()
 
     @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.gray, custom_id="ticket_unclaim")
@@ -175,10 +228,19 @@ class TicketManageView(View):
 
         gconf = get_guild_config(interaction.guild.id)
         ticket = gconf["tickets"].setdefault(str(interaction.channel.id), {})
+
+        previous_claimer_id = ticket.get("claimed_by_id")
         ticket["claimed_by_id"] = None
+        ticket["claim_cooldown_until"] = time.time() + CLAIM_COOLDOWN_SECONDS
         save_config(config)
 
-        await interaction.channel.send(f"↩️ Ticket rilasciato da {interaction.user.mention}")
+        await restore_staff_access(interaction.guild, interaction.channel, gconf, previous_claimer_id)
+
+        await interaction.channel.send(
+            f"↩️ Ticket rilasciato da {interaction.user.mention}.\n"
+            f"👀 Tutto lo staff può ora rivedere il ticket. Si potrà fare nuovamente claim tra "
+            f"{CLAIM_COOLDOWN_SECONDS} secondi."
+        )
         await interaction.response.defer()
 
     @discord.ui.button(label="Close", style=discord.ButtonStyle.red, custom_id="ticket_close")
