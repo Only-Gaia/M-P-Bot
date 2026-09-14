@@ -192,13 +192,15 @@ class TicketManageView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Claim", style=discord.ButtonStyle.green, custom_id="ticket_claim")
+    @discord.ui.button(label="Claim", emoji="✅", style=discord.ButtonStyle.green, custom_id="ticket_claim")
     async def claim(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user, interaction.guild.id):
-            return await interaction.response.send_message("❌ Non hai i permessi per fare claim.", ephemeral=True)
-
         gconf = get_guild_config(interaction.guild.id)
         ticket = gconf["tickets"].setdefault(str(interaction.channel.id), {})
+
+        if interaction.user.id == ticket.get("opener_id"):
+            return await interaction.response.send_message(
+                "❌ Non puoi fare claim al ticket che hai aperto tu.", ephemeral=True
+            )
 
         if ticket.get("claimed_by_id"):
             return await interaction.response.send_message("❌ Questo ticket è già stato preso in carico.", ephemeral=True)
@@ -221,13 +223,15 @@ class TicketManageView(View):
         )
         await interaction.response.defer()
 
-    @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.gray, custom_id="ticket_unclaim")
+    @discord.ui.button(label="Unclaim", emoji="↩️", style=discord.ButtonStyle.gray, custom_id="ticket_unclaim")
     async def unclaim(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user, interaction.guild.id):
-            return await interaction.response.send_message("❌ Non hai i permessi.", ephemeral=True)
-
         gconf = get_guild_config(interaction.guild.id)
         ticket = gconf["tickets"].setdefault(str(interaction.channel.id), {})
+
+        if interaction.user.id == ticket.get("opener_id"):
+            return await interaction.response.send_message(
+                "❌ Non puoi gestire il claim del ticket che hai aperto tu.", ephemeral=True
+            )
 
         previous_claimer_id = ticket.get("claimed_by_id")
         ticket["claimed_by_id"] = None
@@ -243,7 +247,7 @@ class TicketManageView(View):
         )
         await interaction.response.defer()
 
-    @discord.ui.button(label="Close", style=discord.ButtonStyle.red, custom_id="ticket_close")
+    @discord.ui.button(label="Close", emoji="🔒", style=discord.ButtonStyle.red, custom_id="ticket_close")
     async def close(self, interaction: discord.Interaction, button: Button):
         gconf = get_guild_config(interaction.guild.id)
         ticket = gconf["tickets"].get(str(interaction.channel.id), {})
@@ -260,11 +264,11 @@ class TicketManageView(View):
             view=RatingView(opener, claimed_by)
         )
 
-    @discord.ui.button(label="Close with reason", style=discord.ButtonStyle.red, custom_id="ticket_close_reason")
+    @discord.ui.button(label="Close with reason", emoji="📝", style=discord.ButtonStyle.red, custom_id="ticket_close_reason")
     async def close_with_reason(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(CloseReasonModal())
 
-    @discord.ui.button(label="Add user", style=discord.ButtonStyle.blurple, custom_id="ticket_add_user")
+    @discord.ui.button(label="Add user", emoji="➕", style=discord.ButtonStyle.blurple, custom_id="ticket_add_user")
     async def add_user(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(AddUserModal())
 
